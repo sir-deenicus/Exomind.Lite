@@ -13,6 +13,8 @@ import android.widget.EditText;
 import android.widget.TextView;
 import com.nononsenseapps.filepicker.FilePickerActivity;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream; 
 import java.lang.reflect.Method;
@@ -78,10 +80,10 @@ public class Exomind extends Activity {
                     socket = new DatagramSocket(PORT);
                     DatagramPacket packet;
 
-                    byte[] buff = new byte[10000000];
+                    byte[] buff = new byte[1000];
                     packet = new DatagramPacket(buff, buff.length);
 
-                    Log.d(TAG, "created buffer of size: " + 10000000);
+                    Log.d(TAG, "created buffer of size: " + 1000);
                     while (true) {
                         packet.setLength(buff.length);
                         socket.receive(packet);
@@ -101,35 +103,47 @@ public class Exomind extends Activity {
             @Override
             public void run() {
                 try {
-                    Log.d(TAG, "Creating the datagram socket");
+                    Log.d(TAG, "Connecting to " + SERVER + ":" + PORT);
+                    final InetAddress serverAddress = InetAddress.getByName(ipbox.getText().toString());
 
-                    DatagramSocket socket = new DatagramSocket();
+                    Socket socket = new Socket(serverAddress, PORT);
+                    DataOutputStream dataOutputStream = new DataOutputStream(socket.getOutputStream());
+
+                    Log.i(TAG, "socket OK");
 
                     FileInputStream fileInputStream = null;
                     File file = new File(uri);
                     int flen = (int) file.length();
-                    int BYTELEN = Math.min(500, flen);
+                    int BYTELEN = Math.min(1000, flen);
                     byte[] fbytes = new byte[BYTELEN];
                     byte[] fnb = fname.getBytes();
-                    byte[] endmsg = "MSGCOMPLETE".getBytes();
-
-                    Log.d(TAG, "Connecting to " + SERVER + ":" + PORT);
-                    final InetAddress serverAddress = InetAddress.getByName(ipbox.getText().toString());
 
                     Log.d(TAG, "Reading file ");
                     fileInputStream = new FileInputStream(file);
                     int total = 0;
+                    ByteBuffer bb = ByteBuffer.allocate(4);
+                    bb.putInt(fnb.length);
 
-                    socket.send(new DatagramPacket(fnb, fnb.length, serverAddress, PORT));
+                    dataOutputStream.write(bb.array(), 0, 4);
+                    dataOutputStream.write(fnb, 0, fnb.length);
 
                     while (total < flen) {
                         int rlen = fileInputStream.read(fbytes);
-                        DatagramPacket packet = new DatagramPacket(fbytes, rlen, serverAddress, PORT);
-                        socket.send(packet);
+                        dataOutputStream.write(fbytes, 0, rlen);
                         total+= rlen;
                     }
+
                     fileInputStream.close();
-                    socket.send(new DatagramPacket(endmsg, endmsg.length, serverAddress, PORT));
+
+                    DataInputStream dataInput = new DataInputStream(socket.getInputStream());
+                    int x = dataInput.readByte();
+
+                    dataOutputStream.flush() ;
+                    dataInput.close();
+                    dataOutputStream.close();
+                    socket.shutdownOutput();
+                    socket.shutdownInput();
+                    socket.close();
 
                 } catch (Exception e) {
                     Log.e(TAG, "Exception: " + e);
