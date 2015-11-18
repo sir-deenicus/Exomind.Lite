@@ -3,49 +3,30 @@ package exomind.lite;
 import android.app.Activity;
 import android.content.ClipData;
 import android.content.Context;
-import android.content.Intent; 
-import android.net.Uri; 
-import android.os.Build;
+import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
+import android.os.Environment;
 import android.view.View;
 import android.util.Log;
 import android.widget.EditText;
 import android.widget.TextView;
+import com.neovisionaries.ws.client.WebSocket;
+import com.neovisionaries.ws.client.WebSocketAdapter;
+import com.neovisionaries.ws.client.WebSocketFactory;
 import com.nononsenseapps.filepicker.FilePickerActivity;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream; 
-import java.lang.reflect.Method;
-import java.net.*;
-import java.nio.ByteBuffer;
-import java.util.Arrays;
-import java.util.Enumeration;
+import java.io.IOException;
+import java.io.OutputStreamWriter;
 
 public class Exomind extends Activity {
     /**
      * Called when the activity is first created.
      */
-    private static String TAG = "FileClient";
+    private static String TAG = "WSTCPClient";
 
-    private String SERVER = "xx.xx.xx.xx";
-    private static final int PORT = 8016;
     EditText ipbox;
-
-    public  byte [] concatAll(byte[] first, byte[]... rest) {
-        int totalLength = first.length;
-        for (byte[] array : rest) {
-            totalLength += array.length;
-        }
-        byte [] result = Arrays.copyOf(first, totalLength);
-        int offset = first.length;
-        for (byte [] array : rest) {
-            System.arraycopy(array, 0, result, offset, array.length);
-            offset += array.length;
-        }
-        return result;
-    }
+    WebSocket ws;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -58,99 +39,49 @@ public class Exomind extends Activity {
 
         ipbox = (EditText) findViewById(R.id.ipText);
 
-        ((TextView) findViewById(R.id.ipview)).setText("Your IP: " + getLocalIpAddress());
+        ((TextView) findViewById(R.id.ipview)).setText("Your IP: " + Util.getLocalIpAddress());
 
         findViewById(R.id.uploadButton).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                startActivityForResult(i, 0); 
+                startActivityForResult(i, 0);
             }
         });
 
-        startListen();
+        findViewById(R.id.connectButton).setOnClickListener(
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        connectWebSocket();
+                    }
+                });
     }
 
-    private DatagramSocket socket = null;
-
-    private void startListen() {
-        Thread listenThread = new Thread(new Runnable() {
+    private void connectWebSocket() {
+        Thread webSocketThread = new Thread(new Runnable() {
             @Override
             public void run() {
                 try {
-                    socket = new DatagramSocket(PORT);
-                    DatagramPacket packet;
+                    String ip = "ws://" + ipbox.getText().toString() + ":8083/websocket.android";
+                    ws = new WebSocketFactory().createSocket(ip);
 
-                    byte[] buff = new byte[1000];
-                    packet = new DatagramPacket(buff, buff.length);
-
-                    Log.d(TAG, "created buffer of size: " + 1000);
-                    while (true) {
-                        packet.setLength(buff.length);
-                        socket.receive(packet);
-                    }
-                } catch (Exception e) {
-                    Log.e(TAG, "Exception: " + e);
-                    if (socket != null) socket.close();
-                }
-            }
-        });
-        listenThread.start();
-    }
-
-
-    void sendData(final String uri, final String fname) {
-        Thread send = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    Log.d(TAG, "Connecting to " + SERVER + ":" + PORT);
-                    final InetAddress serverAddress = InetAddress.getByName(ipbox.getText().toString());
-
-                    Socket socket = new Socket(serverAddress, PORT);
-                    DataOutputStream dataOutputStream = new DataOutputStream(socket.getOutputStream());
-
-                    Log.i(TAG, "socket OK");
-
-                    FileInputStream fileInputStream = null;
-                    File file = new File(uri);
-                    int flen = (int) file.length();
-                    int BYTELEN = Math.min(1000, flen);
-                    byte[] fbytes = new byte[BYTELEN];
-                    byte[] fnb = fname.getBytes();
-
-                    Log.d(TAG, "Reading file ");
-                    fileInputStream = new FileInputStream(file);
-                    int total = 0;
-                    ByteBuffer bb = ByteBuffer.allocate(4);
-                    bb.putInt(fnb.length);
-
-                    dataOutputStream.write(bb.array(), 0, 4);
-                    dataOutputStream.write(fnb, 0, fnb.length);
-
-                    while (total < flen) {
-                        int rlen = fileInputStream.read(fbytes);
-                        dataOutputStream.write(fbytes, 0, rlen);
-                        total+= rlen;
-                    }
-
-                    fileInputStream.close();
-
-                    DataInputStream dataInput = new DataInputStream(socket.getInputStream());
-                    int x = dataInput.readByte();
-
-                    dataOutputStream.flush() ;
-                    dataInput.close();
-                    dataOutputStream.close();
-                    socket.shutdownOutput();
-                    socket.shutdownInput();
-                    socket.close();
+                    ws.addListener(new WebSocketAdapter() {
+                        @Override
+                        public void onTextMessage(WebSocket websocket, String message) throws Exception {
+                            // Received a text message.
+                            String path = Environment.getExternalStorageDirectory() + "/Documents/text.txt";
+                            SaveTextFile(path, message);
+                        }
+                    });
+                    ws.connect();
 
                 } catch (Exception e) {
                     Log.e(TAG, "Exception: " + e);
+
                 }
             }
         });
-        send.start();
+        webSocketThread.start();
     }
 
     @Override
@@ -167,44 +98,20 @@ public class Exomind extends Activity {
                 }
             } else {
                 Uri uri = data.getData();
-                sendData(uri.getPath(), uri.getLastPathSegment());
+                TCPBridge.sendData(uri.getPath(),ipbox.getText().toString(), uri.getLastPathSegment());
             }
         }
     }
 
-    //http://stackoverflow.com/questions/21898456/get-android-wifi-net-hostname-from-code
-    public static String getHostName() {
+    //http://stackoverflow.com/questions/14376807/how-to-read-write-string-from-a-file-in-android
+     void SaveTextFile(String path, String txt) {
         try {
-            Method getString = Build.class.getDeclaredMethod("getString", String.class);
-            getString.setAccessible(true);
-            return getString.invoke(null, "net.hostname").toString();
-        } catch (Exception ex) {
-            return "";
+            OutputStreamWriter outputStreamWriter = new OutputStreamWriter( openFileOutput(path, Context.MODE_PRIVATE));
+            outputStreamWriter.write(txt);
+            outputStreamWriter.close();
         }
-    }
-
-    //http://android-er.blogspot.com/2014/02/android-sercerclient-example-server.html
-    private String getLocalIpAddress() {
-        String ip = "";
-        try {
-            Enumeration<NetworkInterface> enumNetworkInterfaces = NetworkInterface.getNetworkInterfaces();
-            while (enumNetworkInterfaces.hasMoreElements()) {
-                NetworkInterface networkInterface = enumNetworkInterfaces.nextElement();
-                Enumeration<InetAddress> enumInetAddress = networkInterface.getInetAddresses();
-
-                while (enumInetAddress.hasMoreElements()) {
-                    InetAddress inetAddress = enumInetAddress.nextElement();
-
-                    if (inetAddress.isSiteLocalAddress()) {
-                        ip = inetAddress.getHostAddress();
-                    }
-                }
-            }
-        } catch (SocketException e) {
-            // TODO Auto-generated catch block
-            e.printStackTrace();
-            ip = "Something Wrong! " + e.toString() + "\n";
+        catch (IOException e) {
+            Log.e("Exception", "File write failed: " + e.toString());
         }
-        return ip;
     }
 }

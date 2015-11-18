@@ -16,5 +16,6 @@
     <orderEntry type="inheritedJdk" />
     <orderEntry type="module" module-name="filepicker" />
     <orderEntry type="sourceFolder" forTests="false" />
+    <orderEntry type="library" name="com.neovisionaries:nv-websocket-client:1.12" level="project" />
   </component>
 </module>
